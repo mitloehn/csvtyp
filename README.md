@@ -2,9 +2,18 @@
 
 rayner.py
 
-- go through CSV corpus and check via subset, O(n^2)
+- named entity recognition with DBPedia and Wikidata gazetteer
+
+- check for reference via subset, O(n^2)
 
 - use ray package for parallel processing
+
+tables.py
+
+- run SQL queries on csv.db and create nice Latex tabular code
+
+- each table is assigned a macro name starting with \tabs 
+
 
 full run about 4 hours:
 
@@ -17,8 +26,7 @@ results:
 - changes in csv.db for further sql
 
 
-csv.db:
-not part of git repo as it is 2.2 GB and everything is created in rayner
+csv.db: not part of git repo, everything is created in rayner
 
 
 nerctools: 
