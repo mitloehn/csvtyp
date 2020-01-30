@@ -6,7 +6,7 @@ rayner.py
 
 - named entity recognition with DBPedia and Wikidata gazetteer
 
-- check for reference via subset, O(n^2)
+- check for references via subset, O(n^2) where n is number of text columns
 
 - use ray package for parallel processing
 
@@ -18,7 +18,7 @@ tables.py
 
 - run SQL queries on csv.db and create nice Latex tabular code
 
-- file tabs.tex 
+- write to file tabs.tex 
 
 - each table is assigned a macro name starting with \tabs 
 
