@@ -1,9 +1,9 @@
 default:
 	date
-	python3 sam.py files.lst 10000 > sample.lst
-	python3 ner.py 0 sample.lst 
-	./sqlite csv.db < data.sql
-	./sqlite csv.db < query.sql > results.v13
+	python3 sam.py obd.lst 10000 --obd > sample.lst
+	python3 rayner.py 0 sample.lst --timing
+	./sqlite csv.db < raydata.sql
+	./sqlite csv.db < query.sql > results.v16
 	date
 
 subset:
@@ -15,14 +15,18 @@ subset:
 para:
 	find /data/obd_data2/ -type f -size -500k > obd.lst
 	wc -l obd.lst
-	python3 -u rayner.py 0 obd.lst # --timing
+	python3  rayner.py 0 obd.lst # --timing
 	./sqlite csv.db < raydata.sql
 	# ./sqlite csv.db < query.sql > results.obd.txt
 	python3 tables.py
 
 sizes:
-	find /data/obd_data2/ -type f -size -500k  |  xargs ls -l | awk '{ s += $$5 } END { print s/(1024*1024*1024), NR }'
-	find /data/obd_data2/ -type f -size +500k  |  xargs ls -l | awk '{ s += $$5 } END { print s/(1024*1024*1024), NR }'
+	echo "-500k" > sizes.lst
+	find /data/obd_data2/ -type f -size -500k  |  xargs ls -l | awk '{ s += $$5 } END { print s/(1024*1024*1024), NR }' >> sizes.lst
+	echo "+500k -1000k" >> sizes.lst
+	find /data/obd_data2/ -type f -size +500k -size -1000k |  xargs ls -l | awk '{ s += $$5 } END { print s/(1024*1024*1024), NR }' >> sizes.lst
+	echo "+1000k" >> sizes.lst
+	find /data/obd_data2/ -type f -size +1000k |  xargs ls -l | awk '{ s += $$5 } END { print s/(1024*1024*1024), NR }' >> sizes.lst
 
 tst:
 	python3 rayner.py 10000 obd.lst --timing

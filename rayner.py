@@ -12,6 +12,7 @@ import pickle
 import numpy as np
 import psutil
 import ray
+from datasketch import MinHash, MinHashLSH
 
 # my own my own C/cython implementation, actually slower than pure Python
 if '--nerctools' in sys.argv:
@@ -162,13 +163,14 @@ def refcols(tabs, nval, stats, typsets, sam, tabkeys):
             if stats[l][j]['alph'] == 'A' and stats[k][i]['alph'] == 'N': continue 
             if stats[l][j]['alph'] == 'N' and stats[k][i]['alph'] == 'A': continue 
           y = tabs[l][j]
-          # if len(y) < 3: continue # avoid boolean
+          lim = 0.9
+          if len(y) * lim > len(x): continue
           # common types
           comtyp = typsets[k][i] & typsets[l][j]
           # if len(comtyp) == 0: continue # not good, miss most refs
           # if y <= x: # (strict) subset # instead: 90% subset
           fracsubs = fracsubset(y, x)
-          if fracsubs >= 0.9:
+          if fracsubs >= lim:
             # table l, column j is subset of table k, column i: table l references table k ?
             sql += "insert into sub (l, j, k, i, comtyp, fracsubset, nchild, nparent, fnchild, fnparent)" \
               + " values (%d, %d, %d, %d, '%s', %f, %d, %d, '%s', '%s');\n" \
@@ -227,6 +229,7 @@ def main():
   fout.write('DROP TABLE IF EXISTS sel;\n')
   fout.write('DROP TABLE IF EXISTS sub;\n')
   fout.write('DROP TABLE IF EXISTS vcnt;\n')
+  fout.write('DROP TABLE IF EXISTS lsh;\n')
   fout.write('CREATE TABLE val (desc varchar, nvals int, wtyp int, frac float);\n')
   fout.write('CREATE TABLE vcnt (val varchar, nv int, nt int, typs varchar);\n')
   fout.write('CREATE TABLE tab (id int, rows int, cols int, head int, fn varchar, src varchar);\n')
@@ -234,6 +237,7 @@ def main():
   fout.write('CREATE TABLE err (typ varchar, msg varchar, fn varchar, col int, src varchar);\n')
   fout.write('CREATE TABLE sel (tab int, col int, nval int, ndist int, sel int);\n')
   fout.write('CREATE TABLE sub (l int, j int, k int, i int, comtyp int, fracsubset float, nchild int, nparent int, fnchild varchar, fnparent varchar);\n')
+  fout.write('CREATE TABLE lsh (k int, i int, l int, j int);\n')
   # go through the files in the sample
   for k in range(ss):
     fn = sam[k]
@@ -295,7 +299,7 @@ def main():
   # print('sizeof tabs %.3f GB  sizeof typsets %.3f GB' % (sys.getsizeof(tabs)/GB, sys.getsizeof(typsets)/GB,), file=sys.stderr)
   # value and type counts, most frequent only
   for k in sorted(vcnt, key=vcnt.get, reverse=True)[:100]:
-    fout.write("insert into vcnt (val, nv, nt, typs) values ('%s', %d, %d, '%s');\n" % (k, vcnt[k], len(types[k]), ', '.join(list(types[k])[:5])))
+    fout.write("insert into vcnt (val, nv, nt, typs) values ('%s', %d, %d, '%s');\n" % (k.replace("'", ""), vcnt[k], len(types[k]), ', '.join(list(types[k])[:5])))
   # overall statistics on values and types
   nv, wt = sum([vcnt[k] for k in vcnt]), sum([vcnt[k] * int(len(types[k]) > 0) for k in vcnt])
   fout.write("insert into val (desc, nvals, wtyp, frac) values ('%s', %d, %d, %f);\n" % ('Values', nv, wt, wt/nv))
@@ -308,7 +312,7 @@ def main():
   print("init ray..", file=sys.stderr)
   # Starting Ray with .. GiB memory available for workers and up to .. GiB for objects. 
   # ray.init(memory=<bytes>, object_store_memory=<bytes>).
-  ray.init(num_cpus=num_cpus, memory=20*1024*1024*1024, object_store_memory=45*1024*1024*1024)
+  ray.init(num_cpus=num_cpus, memory=10*1024*1024*1024, object_store_memory=48*1024*1024*1024)
   print("put data into shared mem..", file=sys.stderr)
   tabs_id = ray.put(tabs)
   nval_id = ray.put(nval)
@@ -321,11 +325,40 @@ def main():
   print("parallel section done.", file=sys.stderr)
   # write to file here, NOT in individual tasks 
   for s in sql: fout.write(s)
-  fout.write("commit;\n")
-  fout.close()
   t3 = time()
   print('references done in %.1f seconds or %.1f minutes' % (t3-t2, (t3-t2)/60), file=sys.stderr)
-  print('total run time     %.1f seconds or %.1f minutes' % (t3-t0, (t3-t0)/60), file=sys.stderr)
+  #
+  # locality sensitive hashing for minHashes of column value sets
+  print('build hashes..', file=sys.stderr)
+  lsh = MinHashLSH(threshold=0.9, num_perm=128) 
+  mh = {}
+  for k in tabs:
+    mh[k] = {}
+    for i in tabs[k]:
+      mh[k][i] = MinHash(num_perm=128)
+      for d in tabs[k][i]:
+        mh[k][i].update(d.encode('utf8'))
+      lsh.insert((k,i), mh[k][i])
+  # similar cols according to lsh
+  print("query lsh..")
+  for k in tabs:
+    for i in tabs[k]:
+      # minimum 10 distinct values
+      if len(tabs[k][i]) < 10: continue
+      # selectivity must be 1
+      if len(tabs[k][i]) != nval[k][i]: continue
+      #
+      for l, j in lsh.query(mh[k][i]):
+        if l == k: continue # same table
+        print("TABS", k, i, tabs[k][i])
+        print("SIMT", l, j, tabs[l][j])
+        fout.write("insert into lsh (k, i, l, j) values (%d, %d, %d, %d);\n" % (k, i, l, j))
+  t4 = time()
+  print('hashing done in %.1f seconds or %.1f minutes' % (t4-t3, (t4-t3)/60), file=sys.stderr)
+  #
+  fout.write("commit;\n")
+  fout.close()
+  print('total run time     %.1f seconds or %.1f minutes' % (t4-t0, (t4-t0)/60), file=sys.stderr)
   sys.exit(0)
 
 if '--profile' in sys.argv:
