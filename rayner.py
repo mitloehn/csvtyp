@@ -12,7 +12,7 @@ import pickle
 import numpy as np
 import psutil
 import ray
-from datasketch import MinHash, MinHashLSH
+from datasketch import MinHash, MinHashLSH 
 
 # my own my own C/cython implementation, actually slower than pure Python
 if '--nerctools' in sys.argv:

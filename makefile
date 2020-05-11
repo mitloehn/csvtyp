@@ -1,6 +1,6 @@
 default:
 	date
-	python3 sam.py obd.lst 10000 --obd > sample.lst
+	python3 sam.py obd.lst 1000 --obd > sample.lst
 	python3 rayner.py 0 sample.lst --timing
 	./sqlite csv.db < raydata.sql
 	./sqlite csv.db < query.sql > results.v16

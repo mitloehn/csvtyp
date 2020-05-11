@@ -33,30 +33,26 @@ table('tabsvals', ' & Total & With Type & Percent', 'lrrr', '''
   select desc, nvals, wtyp, round(frac, 3) from val''')
 
 # number of tables read from files, with rows and cols, before processing
-table('tabsbefore', 'Tables & Header & Fraction Header & Columns & Avg Rows & Avg Cols', 'rrrrrr', 
+table('tabsbefore', 'Tables & Header & Columns & Avg Rows & Avg Cols', 'rrrrr', 
     '''select 
     count(*),
     sum(head),
-    round(1.0*sum(head)/count(*), 2),
     sum(cols),
     round(avg(rows),1),
     round(avg(cols),1)
   from tab''')
 
-table('tabshist', 'Rows & Tables & Header & Fraction Header & Avg Columns', 'rrrrr', '''
+table('tabshist', 'Rows & Tables & Header & Avg Columns', 'rrrr', '''
   select
     case 
-      when rows <= 5 then 5
-      when rows > 5 and rows <= 10 then 10
-      when rows > 10 and rows <= 50 then 50
-      when rows > 50 and rows <= 100 then 100
-      when rows > 100 and rows <= 500 then 500
-      when rows > 500 and rows <= 1000 then 1000
-      when rows > 1000 and rows <= 10000 then 10000
-      when rows > 10000 and rows <= 100000 then 100000
+      when rows <= 10 then 10
+      when rows > 10 and rows <= 20 then 20
+      when rows > 20 and rows <= 30 then 30
+      when rows > 30 and rows <= 40 then 40
+      when rows > 40 and rows <= 50 then 50
+      when rows > 50 and rows <= 100000 then 100000
     end,
     count(*),
-    sum(head),
     round(1.0*sum(head)/count(*), 2),
     round(avg(cols), 1)
     from tab group by 1''')
@@ -83,8 +79,8 @@ table('tabserrors', 'Error & Number', 'lr', """
 #- where ndist >= 3 and frac >= 0.8;
 
 # most frequent values and types
-table('tabsvcnt', 'Value & $N_V$ & $N_T$ & Types', 'p{3cm}rrp{11cm}', """
-  select val, nv, nt, typs from vcnt order by nv""")
+table('tabsvcnt', 'Value & $N_V$ & $N_T$ & Types', 'p{2cm}rrp{11cm}', """
+  select val, nv, nt, typs from vcnt order by nv desc limit 10""")
 
 # tables: number of candidate reference tables (some col: ndist >= 10 and sel == 1
 table('tabscandidates', 'Candidate Tables', 'r', '''
@@ -112,7 +108,7 @@ table('tabscolsvalsandsel', 'Columns & Avg Number of Values & Avg Distinct Value
   where nval >= 3''')
 
 # columns: avg coverage for ndist >= 3 and frac >= 0.8
-table('tabscolscoverage', 'Columns & Coverage', 'rr', '''
+table('tabscolscoverage', 'Columns & Avg Coverage', 'rr', '''
   select count(*), round(avg(cov), 3) 
   from col join sel on col.tab = sel.tab and col.col = sel.col 
   where ndist >= 3 and frac >= 0.8''')
@@ -122,6 +118,16 @@ table('tabscolscoverageforselone', 'Columns & Avg Coverage', 'rr', '''
   select count(*), round(avg(cov), 3) 
   from col join sel on col.tab = sel.tab and col.col = sel.col 
   where ndist >= 3 and frac >= 0.8 and ndist = nval''')
+
+# columns: avg coverage for ndist >= 3 and frac = 1 and ndist = nval
+table('tabscolscoverageforfracone', 'Columns & Avg Coverage', 'rr', '''
+  select count(*), round(avg(cov), 3) 
+  from col join sel on col.tab = sel.tab and col.col = sel.col 
+  where ndist >= 3 and frac = 1 and ndist = nval''')
+
+# columns with complete coverage
+table('tabscolscompletecoverage', 'Columns', 'r', '''
+  select count(distinct col) from col where cov = 1''')
 
 # col types with fraction >= 0.8
 table('tabscoltypes', 'Type & Number', 'lr', '''
@@ -140,7 +146,7 @@ table('tabscoltypes', 'Type & Number', 'lr', '''
 
 # ref tables: how many refs by index
 table('tabsreftabsbyindex', 'Index & Tables', 'rr', '''
-  select sub.i, count(distinct(l)) as refs from sub group by sub.i order by refs desc limit 10''')
+  select sub.i, count(distinct(l)) as refs from sub group by sub.i order by refs desc limit 6''')
 
 #- select('ref tables: how many refs by index');
 #- select sub.i, count(distinct(l)) as refs
