@@ -3,13 +3,9 @@
 rayner.py
 
 - Args: sample size (0 for all), list of filenames (e.g. obd.lst)
-
 - named entity recognition with DBPedia and Wikidata gazetteer
-
 - check for references via subset, O(n^2) where n is number of text columns
-
 - use ray package for parallel processing
-
 - results are SQL statements in raydata.sql for input to Sqlite (see makefile)
 
 
@@ -17,25 +13,15 @@ rayner.py
 tables.py
 
 - run SQL queries on csv.db and create nice Latex tabular code
-
 - write to file tabs.tex 
-
 - each table is assigned a macro name starting with \tabs 
 
 
-full run about 4 hours:
+full run about 4 hours - make para
 
-  make para
+csv.db - not part of git repo, everything is created in rayner
 
-
-csv.db: 
-
-not part of git repo, everything is created in rayner
-
-
-nerctools: 
-
-cython version of subset check.  nice try, epic fail. slower than pure python.
+nerctools -  cython version of subset check.  nice try, epic fail. slower than pure python.
 
 
 # Column typing only: Extracting types and labels from Wikidata dump, apply to list of CSV files
