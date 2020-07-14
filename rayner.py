@@ -12,7 +12,7 @@ import pickle
 import numpy as np
 import psutil
 import ray
-from datasketch import MinHash, MinHashLSH 
+from datasketch import MinHash, MinHashLSH, MinHashLSHEnsemble
 
 # my own my own C/cython implementation, actually slower than pure Python
 if '--nerctools' in sys.argv:
@@ -50,13 +50,19 @@ def readf(fn, ftyp):
   global brk
   if ftyp == 'csv':
     rows = []
-    try:
-      f = open(fn, newline='')
-      # hd = f.read(1024*4) #  no performance gain with partial reading schemes, just limit file size
-      rows = [ row for row in csv.reader(f, delimiter=',', quoting=csv.QUOTE_ALL) ]
-      f.close()
-    except:
-      print("readf: error", fn)
+    # encodings unknown
+    for enc in ('utf-8', 'iso-8859-1', 'utf-16'):
+      try:
+        f = open(fn, encoding=enc, newline='')
+        # hd = f.read(1024*4) #  no performance gain with partial reading schemes, just limit file size
+        rows = [ row for row in csv.reader(f, delimiter=',', quoting=csv.QUOTE_ALL) ]
+        f.close()
+        success = True
+        break
+      except:
+        success = False
+    if not success:
+      # print("readf: error", fn)
       err('tab', 'csv reader error', fn, -1)
       return -1
     if len(rows) == 0: 
@@ -230,6 +236,7 @@ def main():
   fout.write('DROP TABLE IF EXISTS sub;\n')
   fout.write('DROP TABLE IF EXISTS vcnt;\n')
   fout.write('DROP TABLE IF EXISTS lsh;\n')
+  fout.write('DROP TABLE IF EXISTS cnts;\n')
   fout.write('CREATE TABLE val (desc varchar, nvals int, wtyp int, frac float);\n')
   fout.write('CREATE TABLE vcnt (val varchar, nv int, nt int, typs varchar);\n')
   fout.write('CREATE TABLE tab (id int, rows int, cols int, head int, fn varchar, src varchar);\n')
@@ -238,15 +245,25 @@ def main():
   fout.write('CREATE TABLE sel (tab int, col int, nval int, ndist int, sel int);\n')
   fout.write('CREATE TABLE sub (l int, j int, k int, i int, comtyp int, fracsubset float, nchild int, nparent int, fnchild varchar, fnparent varchar);\n')
   fout.write('CREATE TABLE lsh (k int, i int, l int, j int);\n')
+  fout.write('CREATE TABLE cnts (desc varchar, cnt int);\n')
+  # file for writing types of columns
+  tsfile = open('typesets.csv', 'w', encoding='utf8', errors='ignore')
+  tsfile.write('filename,column,fraction,type\n')
+  fout.write("insert into cnts (desc, cnt) values ('%s', %d);\n" % ('CSV Files:', ss))
+  ne = 0
+  nallcols = 0 # number of all columns
   # go through the files in the sample
   for k in range(ss):
     fn = sam[k]
-    src = fn[6:9]
-    if src in ['kag', 'obd']: ftyp = 'csv'
-    else: ftyp = 'json'
-    res = readf(fn, ftyp)
-    if res == -1: continue # error reading file
+    src = 'obd' # fn[6:9]
+ #  if src in ['kag', 'obd']: ftyp = 'csv'
+ #  else: ftyp = 'json'
+    res = readf(fn, 'csv') # ftyp)
+    if res == -1: 
+      ne += 1
+      continue # error reading file
     cols, h, nrows, ncols = res
+    nallcols += len(cols)
     #
     # kaggle filenames contain ' !!!
     fout.write("insert into tab values (%d, %d, %d, %d, '%s', '%s');\n" % (k, nrows, ncols, h, cleanfn(fn), src));
@@ -290,11 +307,22 @@ def main():
         cov = len(tset) / len(labels[t]) 
         fout.write("insert into col (tab, col, typ, frac, cov) values (%d, %d, '%s', %f, %f);\n" % 
           (k, i, t.replace("'", "").replace('"', ''), f, cov))
-        if f >= 0.8:
+        if f >= 0.5:
           typsets[k][i].add(t)
+          if t != 'www.w3.org/2002/07/owl#Thing': 
+            # column i in file fn has type t for at least fraction f of elements (set)
+            tsfile.write("%s,%d,%.3f,%s\n" % (fn, i, f, t))
       typsets[k][i].discard('www.w3.org/2002/07/owl#Thing') # messes up results. its always a thing
   t2 = time()
   print('files read in %.1f seconds or %.1f minutes' % (t2-t1, (t2-t1)/60), file=sys.stderr)
+  # some statistics on columns and values (in the sets): number columns, number of values, length of values
+  nc = sum([ len(tabs[k]) for k in tabs ]) 
+  nv = sum([ len(tabs[k][i]) for k in tabs for i in tabs[k] ]) 
+  lv = sum([ len(s) for k in tabs for i in tabs[k] for s in tabs[k][i] ])
+  print('number of tables: %d  cols: %d  avg col size (set): %.1f  avg item len: %.1f' % (len(tabs), nc, nv/nc, lv/nv))
+  fout.write("insert into cnts (desc, cnt) values ('%s', %d);\n" % ('Import Errors:', ne))
+  fout.write("insert into cnts (desc, cnt) values ('%s', %d);\n" % ('All Tables:', len(tabs)))
+  fout.write("insert into cnts (desc, cnt) values ('%s', %d);\n" % ('All Columns:', nallcols))
   # print("brk:", brk) # no gain
   # print('sizeof tabs %.3f GB  sizeof typsets %.3f GB' % (sys.getsizeof(tabs)/GB, sys.getsizeof(typsets)/GB,), file=sys.stderr)
   # value and type counts, most frequent only
@@ -306,59 +334,72 @@ def main():
   uv, wt = len(vcnt), sum([ int(len(types[k]) > 0) for k in vcnt])
   fout.write("insert into val (desc, nvals, wtyp, frac) values ('%s', %d, %d, %f);\n" % ('Unique', uv, wt, wt/uv))
   #
-  print("finding reference columns..", file=sys.stderr)
-  num_cpus = 8 # psutil.cpu_count(logical=False) # weird problems with that
-  print("cpus:", num_cpus)
-  print("init ray..", file=sys.stderr)
-  # Starting Ray with .. GiB memory available for workers and up to .. GiB for objects. 
-  # ray.init(memory=<bytes>, object_store_memory=<bytes>).
-  ray.init(num_cpus=num_cpus, memory=10*1024*1024*1024, object_store_memory=48*1024*1024*1024)
-  print("put data into shared mem..", file=sys.stderr)
-  tabs_id = ray.put(tabs)
-  nval_id = ray.put(nval)
-  stats_id = ray.put(stats)
-  typsets_id = ray.put(typsets)
-  sam_id = ray.put(sam)
-  print("start parallel..", file=sys.stderr)
-  # split task by assigning lists of keys in tabs to check. this will block until all are ready.
-  sql = ray.get([ refcols.remote(tabs_id, nval_id, stats_id, typsets_id, sam_id, tx) for tx in np.array_split(list(tabs.keys()), num_cpus) ])
-  print("parallel section done.", file=sys.stderr)
-  # write to file here, NOT in individual tasks 
-  for s in sql: fout.write(s)
-  t3 = time()
-  print('references done in %.1f seconds or %.1f minutes' % (t3-t2, (t3-t2)/60), file=sys.stderr)
+  if '--refs' in sys.argv:
+    print("finding reference columns..", file=sys.stderr)
+    num_cpus = 8 # psutil.cpu_count(logical=False) # weird problems with that
+    print("cpus:", num_cpus)
+    print("init ray..", file=sys.stderr)
+    # Starting Ray with .. GiB memory available for workers and up to .. GiB for objects. 
+    # ray.init(memory=<bytes>, object_store_memory=<bytes>).
+    ray.init(num_cpus=num_cpus, memory=9*1024*1024*1024, object_store_memory=45*1024*1024*1024)
+    print("put data into shared mem..", file=sys.stderr)
+    tabs_id = ray.put(tabs)
+    nval_id = ray.put(nval)
+    stats_id = ray.put(stats)
+    typsets_id = ray.put(typsets)
+    sam_id = ray.put(sam)
+    print("start parallel..", file=sys.stderr)
+    # split task by assigning lists of keys in tabs to check. this will block until all are ready.
+    sql = ray.get([ refcols.remote(tabs_id, nval_id, stats_id, typsets_id, sam_id, tx) for tx in np.array_split(list(tabs.keys()), num_cpus) ])
+    print("parallel section done.", file=sys.stderr)
+    # write to file here, NOT in individual tasks 
+    for s in sql: fout.write(s)
+    t3 = time()
+    print('references done in %.1f seconds or %.1f minutes' % (t3-t2, (t3-t2)/60), file=sys.stderr)
   #
-  # locality sensitive hashing for minHashes of column value sets
-  print('build hashes..', file=sys.stderr)
-  lsh = MinHashLSH(threshold=0.9, num_perm=128) 
-  mh = {}
-  for k in tabs:
-    mh[k] = {}
-    for i in tabs[k]:
-      mh[k][i] = MinHash(num_perm=128)
-      for d in tabs[k][i]:
-        mh[k][i].update(d.encode('utf8'))
-      lsh.insert((k,i), mh[k][i])
-  # similar cols according to lsh
-  print("query lsh..")
-  for k in tabs:
-    for i in tabs[k]:
-      # minimum 10 distinct values
-      if len(tabs[k][i]) < 10: continue
-      # selectivity must be 1
-      if len(tabs[k][i]) != nval[k][i]: continue
-      #
-      for l, j in lsh.query(mh[k][i]):
-        if l == k: continue # same table
-        print("TABS", k, i, tabs[k][i])
-        print("SIMT", l, j, tabs[l][j])
-        fout.write("insert into lsh (k, i, l, j) values (%d, %d, %d, %d);\n" % (k, i, l, j))
-  t4 = time()
-  print('hashing done in %.1f seconds or %.1f minutes' % (t4-t3, (t4-t3)/60), file=sys.stderr)
+  if '--lsh' in sys.argv:
+    # locality sensitive hashing for minHashes of column value sets
+    print('build hashes..', file=sys.stderr)
+  # lsh = MinHashLSH(threshold=0.75, num_perm=128) 
+    lsh = MinHashLSHEnsemble(threshold=0.9, num_perm=128, num_part=32) 
+    mh = {}
+    for k in tabs:
+      mh[k] = {}
+      for i in tabs[k]:
+        mh[k][i] = MinHash(num_perm=128)
+        for d in tabs[k][i]:
+          mh[k][i].update(d.encode('utf8'))
+    #   lsh.insert((k,i), mh[k][i])
+    lsh.index([ ((k,i), mh[k][i], len(tabs[k][i]))  for k in tabs for i in tabs[k] ]) 
+    t4 = time()
+    print('hashes built in %.1f seconds or %.1f minutes' % (t4-t3, (t4-t3)/60), file=sys.stderr)
+    # similar cols according to lsh
+    print("query lsh..")
+    for k in tabs:
+      for i in tabs[k]:
+  #     for l, j in lsh.query(mh[k][i]):
+        for l, j in lsh.query(mh[k][i], len(tabs[k][i])):
+          if l == k: continue # same table
+          # l,j is the parent!
+          # min size for ref tab
+          if len(tabs[l][j]) < 10: continue 
+          # selectivity must be 1
+          if len(tabs[l][j]) != nval[l][j]: continue
+          if len(tabs[k][i]) < 10 and len(tabs[l][j]) < 10:
+            print("TABS", k, i, tabs[k][i])
+            print("SIMT", l, j, tabs[l][j])
+          fout.write("insert into lsh (k, i, l, j) values (%d, %d, %d, %d);\n" % (l, j, k, i))
+  else:
+    t4 = time()
+    # need content for query?
+    # fout.write("insert into lsh (k, i, l, j) values (%d, %d, %d, %d);\n" % (0, 0, 0, 0))
+  t5 = time()
+  print('hash queries done in %.1f seconds or %.1f minutes' % (t5-t4, (t5-t4)/60), file=sys.stderr)
   #
   fout.write("commit;\n")
   fout.close()
-  print('total run time     %.1f seconds or %.1f minutes' % (t4-t0, (t4-t0)/60), file=sys.stderr)
+  tsfile.close()
+  print('total run time     %.1f seconds or %.1f minutes' % (t5-t0, (t5-t0)/60), file=sys.stderr)
   sys.exit(0)
 
 if '--profile' in sys.argv:
