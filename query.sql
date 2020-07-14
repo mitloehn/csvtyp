@@ -72,8 +72,8 @@ order by count(*) desc limit 20;
 --.width 5 2 5 2 50 50
 --select l, j, k, i, s, t from sub order by k, i, l, j limit 20 ;
 
-select('ref tables: how many refs by index');
-select sub.i, count(distinct(l)) as refs from sub group by sub.i order by refs desc limit 10;
+--select('ref tables: how many refs by index');
+--select sub.i, count(distinct(l)) as refs from sub group by sub.i order by refs desc limit 10;
 
 
 -- select('ref tables: how many refs by index');

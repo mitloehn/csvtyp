@@ -36,3 +36,19 @@ not part of git repo, everything is created in rayner
 nerctools: 
 
 cython version of subset check.  nice try, epic fail. slower than pure python.
+
+
+# COLUMN TYPING ONLY: Extracting types and labels from Wikidata dump, apply to list of CSV files
+
+lite.sh - bash script for the whole process
+
+lite.py - go through wikidata truthy dump and write labels, types, and subclasses to lab.csv, p31.csv, and p279.csv
+
+liteimp.sql - import files from previous step into sqlite3
+
+litesel.sql - execute join on lab and p31
+
+uniconv.pl - Perl script to convert Unicode sequences from wikidata truthy dump to utf8 file with labels and types
+
+coltyp.py - contains only the code for CSV file column typing; uses the type file from previous step
+

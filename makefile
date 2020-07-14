@@ -1,10 +1,25 @@
 default:
 	date
-	python3 sam.py obd.lst 1000 --obd > sample.lst
-	python3 rayner.py 0 sample.lst --timing
-	./sqlite csv.db < raydata.sql
-	./sqlite csv.db < query.sql > results.v16
+	# find /data/csvs_05-12-2020/ -type f -size -200k  > obd.lst # 100k crawler limit!??
+	find /data/obd_data2/ -type f -size -500k > obd.lst
+	# python3 sam.py obd.lst 0000 --obd > sample.lst
+	wc -l obd.lst
+	python3 rayner.py 000 obd.lst  # --refs # --lsh # --timing
+	# mv typesets.csv typesets.2016.csv
+	# rm csv.db
+	# ./sqlite csv.db < raydata.sql
+	# ./sqlite csv.db < query.sql > results.2020c.txt
+	# python3 tables.py > tabs.2020.200k.tex
 	date
+
+semtab2020:
+	python3 coltyp.py /data/truthy/types.en-de.txt semtab.lst > cta.csv
+	# find ~/semtab2020_tables -type f > semtab.lst
+	# wc -l semtab.lst
+	# python3 rayner.py 0 semtab.lst --refs --lsh
+	# rm csv.db
+	# ./sqlite csv.db < raydata.sql
+	# python3 tables.py > semtab.tex
 
 subset:
 	zcat ../dl/wikidata_en_de_labels.ttl.gz | head -50000 > wdlab.txt
