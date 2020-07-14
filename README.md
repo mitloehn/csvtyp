@@ -38,7 +38,7 @@ nerctools:
 cython version of subset check.  nice try, epic fail. slower than pure python.
 
 
-# COLUMN TYPING ONLY: Extracting types and labels from Wikidata dump, apply to list of CSV files
+# Column typing only: Extracting types and labels from Wikidata dump, apply to list of CSV files
 
 lite.sh - bash script for the whole process
 
